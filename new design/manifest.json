@@ -1,0 +1,49 @@
+{
+  "format": "gemui-export",
+  "version": 2,
+  "artifacts": [
+    {
+      "filename": "1-editorial-narrative.html",
+      "bytes": 16228,
+      "sha256": "dd172005468cf4b126abc816dbb74e19996686c674f6876e79f0a9eebbfd4f6d",
+      "viewport": {
+        "id": "laptop",
+        "width": 1280,
+        "height": 800
+      },
+      "warnings": [
+        "External assets from flashs-ui.vercel.app may render differently offline.",
+        "Scripts and interactive state are preserved in HTML but omitted from PNG capture.",
+        "Review form destinations before publishing the downloaded HTML."
+      ]
+    },
+    {
+      "filename": "2-task-focused-workspace.html",
+      "bytes": 15797,
+      "sha256": "1f0f5525aac3ec3df085fc2413d01d6e56a8b83cd10594f1b85ffff58202c4c1",
+      "viewport": {
+        "id": "laptop",
+        "width": 1280,
+        "height": 800
+      },
+      "warnings": [
+        "External assets from flashs-ui.vercel.app may render differently offline.",
+        "Scripts and interactive state are preserved in HTML but omitted from PNG capture."
+      ]
+    },
+    {
+      "filename": "3-visual-showcase.html",
+      "bytes": 18185,
+      "sha256": "b683b858e32b506d84a8fbd33e7a01ff3bc0c9e7d26336be06bd6c9a59244532",
+      "viewport": {
+        "id": "mobile",
+        "width": 390,
+        "height": 844
+      },
+      "warnings": [
+        "External assets from flashs-ui.vercel.app may render differently offline.",
+        "Scripts and interactive state are preserved in HTML but omitted from PNG capture."
+      ]
+    }
+  ]
+}

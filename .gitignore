@@ -1,0 +1,10 @@
+node_modules
+dist
+data
+.DS_Store
+.env
+.env.local
+*.tsbuildinfo
+.vite
+src-tauri/target
+src-tauri/gen
