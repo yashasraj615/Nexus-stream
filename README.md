@@ -1,66 +1,54 @@
 # Nexus Stream
 
-Self-hosted local media server for movies, TV, cartoons, and music. It runs in the browser at `http://localhost:3615` and can also run as a macOS menu-bar app that hosts the same server.
+Your movies, TV, cartoons, and music — from folders on the Mac, in a glass interface.
 
-## Requirements
+Nexus Stream is a private media app. It scans the libraries you point it at, turns those files into a dashboard of titles, and plays them in the browser. On macOS it also lives in the menu bar so the same library stays available on the local network.
 
-- Node.js 22+
-- FFmpeg / ffprobe on your PATH for artwork and remux (the Mac app bundles its own)
-- A [Supabase](https://supabase.com) project for sign-in (Lumora / existing Nexus auth)
+![Dashboard with a featured movie, continue watching, and continue listening](docs/screenshots/dashboard.png)
 
-## Setup
+## Watch and listen
 
-```bash
-cp .env.example .env
-```
+The home screen is a featured title, then rails for **Continue watching**, **Continue listening**, suggested movies, series, and music, and whatever you recently added. Progress is personal — each account picks up where it left off.
 
-Fill in:
+![Custom video player with skip, picture-in-picture, and glass controls](docs/screenshots/player.png)
 
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_PUBLISHABLE_KEY`
-- `NEXUS_ADMIN_EMAILS` — comma-separated emails that can open `/admin`
-- `NEXUS_MEDIA_ROOT` — optional first-run media folder. After that, change folders in **Admin → Folders**.
+Video plays in a custom player, not the browser’s built-in chrome:
 
-Do not commit `.env`.
+- Play, pause, skip ten seconds, previous and next
+- Seek, volume, fit, fullscreen
+- Picture-in-picture
+- Speed and subtitles
+- Copy-to-disk when a file needs smoother playback
 
-```bash
-npm install
-npm run dev
-```
+Music keeps playing in a mini player while you browse.
 
-Open [http://localhost:3615](http://localhost:3615). Production mode:
+## Browse the library
 
-```bash
-npm run build
-npm start
-```
+![Directory of movies, music, TV, and the cartoon library](docs/screenshots/directory.png)
 
-The host always binds port **3615** on all interfaces (`0.0.0.0`).
+**Directory** follows the real folders on disk. Movies, music, TV series, and a cartoon library sit side by side. Open a series and you get seasons and episodes. Open a multi-part movie and you get the collection.
 
-## Admin
+![Search results grouped into movies and TV series](docs/screenshots/search.png)
 
-Signed-in admins open `/admin` or **Open Admin Panel** from the tray.
+**Search** finds titles across the library. Movies and tracks play immediately. Series and collections open as a list.
 
-- **Folders** — default library path and extra folders
-- **Library** — browse the real directory tree; open a file to edit title, artwork, visibility, recommendations, and dashboard placement
-- **Dashboard** — featured title and custom rails
-- **Users / Activity** — local session visibility only. Accounts stay in Supabase.
+![Playlists page with a music playlist](docs/screenshots/playlists.png)
 
-## macOS app
+**Playlists** are yours. A list can hold videos or music, not both.
 
-```bash
-npx tauri build --bundles app
-```
+## Shape how it looks
 
-That packs Node, the server, the web UI, and FFmpeg into `Nexus Stream.app`. Library metadata is stored in `~/Library/Application Support/Nexus Stream`. The app does not need this git checkout at runtime.
+![Admin panel browsing the library tree](docs/screenshots/admin.png)
 
-## Scripts
+Admins get a separate panel for the Mac that is hosting the library:
 
-| Command | What it does |
-| --- | --- |
-| `npm run dev` | API + Vite on port 3615 |
-| `npm start` | Production server serving `dist/` |
-| `npm run build` | Typecheck and build the web UI |
-| `npx tauri build --bundles app` | Build the standalone Mac app |
+- Attach extra folders so they show up as additional libraries
+- Walk the real directory tree
+- Change display titles, artwork, and visibility
+- Pin recommendations and curate dashboard rails
 
-`src-tauri/runtime/` is generated at package time and is not committed.
+Hidden titles stay out of everyone else’s library. Accounts sign in individually; continue rails never mix.
+
+---
+
+Nexus Stream is for a household library, not a public catalog.
