@@ -9,6 +9,7 @@ import { SearchPage } from "./pages/SearchPage";
 import { SignInPage } from "./pages/SignInPage";
 import { NowPlayingPage } from "./pages/NowPlayingPage";
 import { WatchPage } from "./pages/WatchPage";
+import { AdminPage } from "./pages/AdminPage";
 
 export function App() {
   const location = useLocation();
@@ -38,6 +39,7 @@ export function App() {
           <Route path="/now-playing" element={<NowPlayingPage />} />
           <Route path="/profile" element={<ProfilePage />} />
         </Route>
+        <Route path="/admin" element={<AdminPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>

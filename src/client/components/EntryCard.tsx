@@ -35,7 +35,7 @@ export function CardPoster({ entry }: { entry: DirectoryEntry }) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
   const srcPath = posterPathOf(entry);
-  const src = srcPath && token ? artworkHref(srcPath, token) : "";
+  const src = srcPath && token ? artworkHref(srcPath, token, entry.artworkVersion) : "";
   const [broken, setBroken] = useState(false);
   if (!src || broken) return null;
   return <img className="card-art" src={src} alt="" onError={() => setBroken(true)} />;

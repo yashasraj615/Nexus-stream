@@ -1,7 +1,8 @@
 import type { User } from "@supabase/supabase-js";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Context } from "hono";
-import { SUPABASE_KEY, SUPABASE_URL } from "./config.ts";
+import { hashToken, touchSession } from "./admin-store.ts";
+import { ADMIN_EMAILS, SUPABASE_KEY, SUPABASE_URL } from "./config.ts";
 
 const supabase =
   SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
@@ -23,6 +24,12 @@ export function userClient(token: string): SupabaseClient {
   });
 }
 
+export function userIsAdmin(user: User) {
+  const email = user.email?.trim().toLowerCase();
+  if (email && ADMIN_EMAILS.includes(email)) return true;
+  return (user.app_metadata as { role?: unknown } | undefined)?.role === "admin";
+}
+
 export async function requireUser(c: Context) {
   if (!supabase) return null;
   const token = requestToken(c);
@@ -36,7 +43,20 @@ export async function requireUser(c: Context) {
     const oldest = userCache.keys().next().value;
     if (oldest) userCache.delete(oldest);
   }
+  touchSession({
+    tokenHash: hashToken(token),
+    userId: data.user.id,
+    email: data.user.email ?? "",
+    username: (data.user.user_metadata?.username as string | undefined) ?? null,
+  });
   return data.user;
+}
+
+export async function requireAdmin(c: Context) {
+  const user = await requireUser(c);
+  if (!user) return { ok: false as const, status: 401 as const, error: "Unauthorized" };
+  if (!userIsAdmin(user)) return { ok: false as const, status: 403 as const, error: "Forbidden" };
+  return { ok: true as const, user };
 }
 
 export async function requireUserState(c: Context) {

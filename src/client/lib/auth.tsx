@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
+import { apiGet, apiSend } from "./api";
 import { clearSearchHistory } from "./search-history";
 import { supabase } from "./supabase";
 
@@ -21,6 +22,7 @@ type AuthState = {
   session: Session | null;
   user: User | null;
   profile: UserProfile | null;
+  admin: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -52,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [admin, setAdmin] = useState(false);
 
   const refreshProfile = useCallback(async () => {
     const userId = session?.user.id;
@@ -83,6 +86,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refreshProfile();
   }, [refreshProfile]);
 
+  useEffect(() => {
+    if (!session?.access_token) {
+      setAdmin(false);
+      return;
+    }
+    void apiGet<{ admin: boolean }>("/api/me")
+      .then((data) => setAdmin(Boolean(data.admin)))
+      .catch(() => setAdmin(false));
+    void apiSend("/api/session/hello", "POST").catch(() => undefined);
+  }, [session?.access_token]);
+
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error: error?.message ?? null };
@@ -90,8 +104,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     clearSearchHistory();
+    try {
+      await apiSend("/api/session/bye", "POST");
+    } catch {
+      /* still sign out locally */
+    }
     await supabase.auth.signOut();
     setProfile(null);
+    setAdmin(false);
   }, []);
 
   const updateUsername = useCallback(
@@ -168,6 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       user: session?.user ?? null,
       profile,
+      admin,
       signIn,
       signOut,
       refreshProfile,
@@ -175,7 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updatePassword,
       uploadAvatar,
     }),
-    [profile, ready, refreshProfile, session, signIn, signOut, updatePassword, updateUsername, uploadAvatar],
+    [admin, profile, ready, refreshProfile, session, signIn, signOut, updatePassword, updateUsername, uploadAvatar],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

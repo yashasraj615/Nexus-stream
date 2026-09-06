@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { ffmpegPath, ffprobePath } from "./bins.ts";
 
 const execFileAsync = promisify(execFile);
 
 export async function getFfmpegStatus() {
   try {
-    const { stdout } = await execFileAsync("ffmpeg", ["-version"], {
+    const { stdout } = await execFileAsync(ffmpegPath(), ["-version"], {
       timeout: 4000,
     });
     const first = stdout.split("\n")[0] ?? "";
@@ -47,7 +48,7 @@ const DIRECT_CONTAINER = new Set(["mp4", "m4v", "mov", "webm", "mp3", "m4a", "aa
 
 export async function probeMedia(absPath: string): Promise<MediaProbe> {
   const { stdout } = await execFileAsync(
-    "ffprobe",
+    ffprobePath(),
     ["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", absPath],
     { timeout: 20000, maxBuffer: 2_000_000 },
   );

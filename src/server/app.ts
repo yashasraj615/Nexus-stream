@@ -3,9 +3,15 @@ import { Readable } from "node:stream";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { extractArtwork } from "./artwork.ts";
-import { requireUser, requireUserState } from "./auth.ts";
-import { MEDIA_ROOT } from "./config.ts";
+import { requireUser, requireUserState, userIsAdmin } from "./auth.ts";
 import { getMedia, libraryCounts } from "./db.ts";
+import { adminApi } from "./admin-api.ts";
+import {
+  endSession,
+  hashToken,
+  logEvent,
+  upsertNowPlaying,
+} from "./admin-store.ts";
 import { getFfmpegStatus } from "./ffmpeg.ts";
 import { readPlaylist, waitForSegment, hlsProgress } from "./hls.ts";
 import { playCacheProgress } from "./playcache.ts";
@@ -20,8 +26,10 @@ import {
   resolvePlayable,
   searchLibrary,
   subtitlesFor,
+  isAudienceHidden,
 } from "./present.ts";
 import { getScanState, startScan } from "./scan.ts";
+import { listLibraries } from "./settings.ts";
 import { streamFile } from "./stream.ts";
 import {
   addPlaylistItem,
@@ -54,10 +62,21 @@ api.use(
   cors({
     origin: "*",
     allowHeaders: ["Authorization", "Content-Type", "Range"],
-    allowMethods: ["GET", "HEAD", "POST", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Range", "Accept-Ranges", "Content-Length"],
   }),
 );
+
+api.route("/admin", adminApi);
+
+async function rejectHidden(c: Context, relativePath: string) {
+  const user = await requireUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  if (isAudienceHidden(relativePath) && !userIsAdmin(user)) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  return null;
+}
 
 api.get("/health", async (c) => {
   const ffmpeg = await getFfmpegStatus();
@@ -77,11 +96,46 @@ api.get("/health", async (c) => {
     ok: true,
     service: "nexus-stream",
     ffmpeg,
-    mediaRoot: MEDIA_ROOT,
+    libraries: listLibraries().map((row) => ({
+      id: row.id,
+      name: row.name,
+      path: row.path,
+      primary: row.primary,
+    })),
     supabase,
     library: getScanState().status,
     scan: getScanState(),
   });
+});
+
+api.get("/me", async (c) => {
+  const user = await requireUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  return c.json({
+    id: user.id,
+    email: user.email ?? null,
+    admin: userIsAdmin(user),
+  });
+});
+
+api.post("/session/hello", async (c) => {
+  const user = await requireUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  return c.json({ ok: true, admin: userIsAdmin(user) });
+});
+
+api.post("/session/bye", async (c) => {
+  const user = await requireUser(c);
+  const token = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "").trim() ?? "";
+  if (token) endSession(hashToken(token), user?.id, user?.email ?? undefined);
+  return c.json({ ok: true });
+});
+
+api.post("/session/failed", async (c) => {
+  const body = await c.req.json<{ email?: string }>().catch(() => ({ email: "" }));
+  const email = String(body.email ?? "").trim().toLowerCase();
+  if (email) logEvent({ type: "failed_auth", email, detail: "sign-in failed" });
+  return c.json({ ok: true });
 });
 
 function isLocalDesktop(c: Context) {
@@ -116,6 +170,8 @@ api.get("/directory", async (c) => {
     if (parent && !getMedia(parent)) {
       return c.json({ error: "Not found" }, 404);
     }
+    const blocked = await rejectHidden(c, parent);
+    if (blocked) return blocked;
   }
   return c.json({
     path: parent,
@@ -133,6 +189,8 @@ api.get("/container", async (c) => {
   } catch {
     return c.json({ error: "Invalid path" }, 400);
   }
+  const blocked = await rejectHidden(c, relativePath);
+  if (blocked) return blocked;
   const container = getContainer(relativePath);
   if (!container) return c.json({ error: "Not a series or collection" }, 404);
   return c.json(container);
@@ -144,6 +202,8 @@ api.get("/media", async (c) => {
   if (!relativePath) return c.json({ error: "Missing path" }, 400);
   const entry = resolvePlayable(relativePath) ?? null;
   if (!entry) return c.json({ error: "Not found" }, 404);
+  const blocked = await rejectHidden(c, relativePath);
+  if (blocked) return blocked;
   return c.json(entry);
 });
 
@@ -183,6 +243,8 @@ api.get("/playback", async (c) => {
   } catch {
     return c.json({ error: "Invalid path" }, 400);
   }
+  const blocked = await rejectHidden(c, relativePath);
+  if (blocked) return blocked;
   try {
     const payload = await getPlayback(relativePath);
     if (!payload) return c.json({ error: "Not found" }, 404);
@@ -202,6 +264,8 @@ api.get("/artwork", async (c) => {
   } catch {
     return c.json({ error: "Invalid path" }, 400);
   }
+  const blocked = await rejectHidden(c, relativePath);
+  if (blocked) return blocked;
   try {
     const body = await extractArtwork(relativePath);
     return new Response(new Uint8Array(body), {
@@ -250,6 +314,8 @@ api.get("/hls/playlist", async (c) => {
   } catch {
     return c.json({ error: "Invalid path" }, 400);
   }
+  const blocked = await rejectHidden(c, relativePath);
+  if (blocked) return blocked;
   try {
     const playlist = await readPlaylist(relativePath, token);
     return c.body(playlist, 200, {
@@ -267,6 +333,8 @@ api.get("/hls/seg", async (c) => {
   const relativePath = c.req.query("path") ?? "";
   const file = c.req.query("file") ?? "";
   if (!relativePath || !file) return c.json({ error: "Missing path" }, 400);
+  const blocked = await rejectHidden(c, relativePath);
+  if (blocked) return blocked;
   try {
     const { stream, size } = await waitForSegment(relativePath, file);
     return new Response(Readable.toWeb(stream) as ReadableStream, {
@@ -291,6 +359,8 @@ api.on(["GET", "HEAD"], "/stream", async (c) => {
   if (row.kind !== "video" && row.kind !== "audio") {
     return c.json({ error: "Not streamable" }, 400);
   }
+  const blocked = await rejectHidden(c, relativePath);
+  if (blocked) return blocked;
   return streamFile(c, relativePath);
 });
 
@@ -357,6 +427,14 @@ api.post("/progress", async (c) => {
     Number(body.duration ?? 0),
   );
   await touchHistory(gated.sb, gated.user.id, body.path);
+  upsertNowPlaying({
+    userId: gated.user.id,
+    email: gated.user.email ?? null,
+    mediaKey: body.path,
+    position: Number(body.position ?? 0),
+    duration: Number(body.duration ?? 0),
+    completed: result.completed,
+  });
   return c.json({ ok: true, completed: result.completed });
 });
 

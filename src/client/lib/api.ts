@@ -17,6 +17,7 @@ export type DirectoryEntry = {
   subtitlePaths: string[];
   childLabel: string | null;
   artworkPath?: string | null;
+  artworkVersion?: number;
 };
 
 export type ScanState = {
@@ -119,6 +120,7 @@ export type HomePayload = {
   featuredDuration: number | null;
   continueVideos: Array<{ entry: DirectoryEntry; position: number; duration: number }>;
   continueMusic: Array<{ entry: DirectoryEntry; position: number; duration: number }>;
+  sections?: Array<{ id: string; title: string; items: DirectoryEntry[] }>;
   suggestedMovies: DirectoryEntry[];
   suggestedSeries: DirectoryEntry[];
   suggestedMusic: DirectoryEntry[];
@@ -163,9 +165,24 @@ export function hlsPlaylistHref(playPath: string, token: string) {
   return `/api/hls/playlist?${params}`;
 }
 
-export function artworkHref(mediaPath: string, token: string) {
+export function artworkHref(mediaPath: string, token: string, version?: number) {
   const params = new URLSearchParams({ path: mediaPath, access_token: token });
+  if (version) params.set("v", String(version));
   return `/api/artwork?${params}`;
+}
+
+export async function apiUpload<T>(url: string, body: FormData): Promise<T> {
+  const headers = new Headers();
+  const { data } = await supabase.auth.getSession();
+  if (data.session?.access_token) {
+    headers.set("Authorization", `Bearer ${data.session.access_token}`);
+  }
+  const res = await fetch(url, { method: "POST", headers, body });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((payload as { error?: string }).error ?? res.statusText);
+  }
+  return res.json() as Promise<T>;
 }
 
 export async function waitForHlsReady(

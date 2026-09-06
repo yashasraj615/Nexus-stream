@@ -107,7 +107,9 @@ function AudioMini() {
         <button type="button" className="audio-mini-close" onClick={close} aria-label="Close player">
           <Glyph d={icons.close} size={16} />
         </button>
-        <div className="audio-mini-progress" style={{ width: `${pct}%` }} />
+        <div className="audio-mini-progress-track" aria-hidden>
+          <div className="audio-mini-progress" style={{ width: `${pct}%` }} />
+        </div>
       </div>
     </div>
   );

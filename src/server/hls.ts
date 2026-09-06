@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import path from "node:path";
 import { HLS_DIR } from "./config.ts";
 import { probeMedia, type MediaProbe } from "./ffmpeg.ts";
+import { ffmpegPath } from "./bins.ts";
 import { resolveMediaPath } from "./paths.ts";
 
 type Encoder = "copy" | "videotoolbox" | "libx264" | "audio";
@@ -202,7 +203,7 @@ function ffmpegArgs(abs: string, encoder: Encoder, probe: MediaProbe) {
 }
 
 function startEncoder(abs: string, dir: string, encoder: Encoder, probe: MediaProbe) {
-  const proc = spawn("ffmpeg", ffmpegArgs(abs, encoder, probe), {
+  const proc = spawn(ffmpegPath(), ffmpegArgs(abs, encoder, probe), {
     cwd: dir,
     stdio: ["ignore", "pipe", "pipe"],
   });

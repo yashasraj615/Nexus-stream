@@ -36,6 +36,24 @@ fn project_root() -> PathBuf {
     .unwrap_or_else(|| PathBuf::from("."))
 }
 
+fn app_support_dir() -> PathBuf {
+  let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+  PathBuf::from(home).join("Library/Application Support/Nexus Stream")
+}
+
+fn runtime_dir() -> PathBuf {
+  if let Some(bundle) = bundle_dir() {
+    let resource = bundle.join("Contents").join("Resources");
+    for candidate in [resource.join("runtime"), resource.clone()] {
+      if candidate.join("server.mjs").exists() {
+        return candidate;
+      }
+    }
+    return resource.join("runtime");
+  }
+  project_root()
+}
+
 fn bundle_dir() -> Option<PathBuf> {
   let exe = std::env::current_exe().ok()?;
   let macos = exe.parent()?;
@@ -300,30 +318,57 @@ fn spawn_server(state: &DesktopState) -> Result<(), String> {
     kill_port(PORT);
     thread::sleep(Duration::from_millis(400));
   }
-  let mut cmd = Command::new("npm");
   if cfg!(debug_assertions) {
+    let mut cmd = Command::new("npm");
     cmd.args(["run", "dev"]);
-  } else {
-    cmd.args(["run", "start"]).env("NODE_ENV", "production");
+    cmd
+      .current_dir(&state.root)
+      .env("PATH", enriched_path())
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped())
+      .process_group(0);
+    let mut child = cmd
+      .spawn()
+      .map_err(|err| format!("Could not start npm: {err}"))?;
+    pipe_output(&mut child, state.log_path.clone(), "server");
+    *state.server.lock().unwrap() = Some(child);
+    append_log(&state.log_path, "[desktop] started npm run dev");
+    return Ok(());
   }
+
+  let runtime = runtime_dir();
+  let node = runtime.join("bin").join("node");
+  let server = runtime.join("server.mjs");
+  if !node.exists() || !server.exists() {
+    return Err(
+      "This copy of Nexus Stream is missing its built-in server. Install it from the DMG."
+        .into(),
+    );
+  }
+  let support = app_support_dir();
+  let bin = runtime.join("bin");
+  let _ = fs::create_dir_all(&support);
+  let mut cmd = Command::new(&node);
   cmd
-    .current_dir(&state.root)
-    .env("PATH", enriched_path())
+    .arg(&server)
+    .current_dir(&runtime)
+    .env("NODE_ENV", "production")
+    .env("NEXUS_BUNDLED", "1")
+    .env("NEXUS_RESOURCE_DIR", &runtime)
+    .env("NEXUS_DATA_DIR", &support)
+    .env("NEXUS_BIN_DIR", &bin)
+    .env("PATH", format!("{}:{}", bin.display(), enriched_path()))
     .stdout(Stdio::piped())
     .stderr(Stdio::piped())
     .process_group(0);
   let mut child = cmd
     .spawn()
-    .map_err(|err| format!("Could not start npm: {err}"))?;
+    .map_err(|err| format!("Could not start bundled server: {err}"))?;
   pipe_output(&mut child, state.log_path.clone(), "server");
   *state.server.lock().unwrap() = Some(child);
   append_log(
     &state.log_path,
-    if cfg!(debug_assertions) {
-      "[desktop] started npm run dev"
-    } else {
-      "[desktop] started npm run start"
-    },
+    &format!("[desktop] started bundled server from {}", runtime.display()),
   );
   Ok(())
 }
@@ -491,6 +536,12 @@ fn open_browser() {
     .status();
 }
 
+fn open_admin() {
+  let _ = Command::new("open")
+    .arg(format!("http://localhost:{PORT}/admin"))
+    .status();
+}
+
 fn show_logs(state: &DesktopState) {
   let _ = fs::create_dir_all(state.log_path.parent().unwrap_or(state.root.as_path()));
   if !state.log_path.exists() {
@@ -548,6 +599,12 @@ fn refresh_menu(app: &AppHandle) {
   let Ok(open) = MenuItemBuilder::with_id("open", "Open in browser").build(app) else {
     return;
   };
+  let Ok(open_again) = MenuItemBuilder::with_id("open-again", "Open another browser window").build(app) else {
+    return;
+  };
+  let Ok(admin) = MenuItemBuilder::with_id("admin", "Open Admin Panel").build(app) else {
+    return;
+  };
   let Ok(scan) = MenuItemBuilder::with_id("scan", "Scan library").build(app) else {
     return;
   };
@@ -586,6 +643,8 @@ fn refresh_menu(app: &AppHandle) {
     .item(&status)
     .item(&sep)
     .item(&open)
+    .item(&open_again)
+    .item(&admin)
     .item(&scan)
     .item(&restart)
     .item(&logs)
@@ -630,10 +689,10 @@ fn main() {
         return Ok(());
       }
 
-      let root = project_root();
-      let log_path = root.join("data").join("desktop.log");
-      let _ = fs::create_dir_all(root.join("data"));
-      let Some(lock) = acquire_lock(&root.join("data").join("desktop.lock")) else {
+      let support = app_support_dir();
+      let _ = fs::create_dir_all(&support);
+      let log_path = support.join("desktop.log");
+      let Some(lock) = acquire_lock(&support.join("desktop.lock")) else {
         open_browser();
         notify(
           "Nexus Stream",
@@ -648,7 +707,11 @@ fn main() {
         tunnel_url: Mutex::new(None),
         caffeinate: Mutex::new(None),
         log_path,
-        root,
+        root: if cfg!(debug_assertions) {
+          project_root()
+        } else {
+          runtime_dir()
+        },
         _lock: lock,
       });
       hold_awake(&state);
@@ -678,6 +741,8 @@ fn main() {
           let state = app.state::<Arc<DesktopState>>();
           match event.id().as_ref() {
             "open" => open_browser(),
+            "open-again" => open_browser(),
+            "admin" => open_admin(),
             "scan" => {
               let owned = state.inner().clone();
               thread::spawn(move || scan_library(&owned));

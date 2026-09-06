@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { EntryCard } from "../components/EntryCard";
 import { InstallApp } from "../components/InstallApp";
 import { RailScroll } from "../components/RailScroll";
@@ -15,7 +16,7 @@ type Favs = {
 type HistoryItem = { entry: DirectoryEntry; openedAt: number };
 
 export function ProfilePage() {
-  const { user, profile, signOut, updateUsername, updatePassword, uploadAvatar } = useAuth();
+  const { user, profile, admin, signOut, updateUsername, updatePassword, uploadAvatar } = useAuth();
   const settings = useSettings();
   const [username, setUsername] = useState(
     profile?.username || (user?.user_metadata?.username as string | undefined) || user?.email?.split("@")[0] || "",
@@ -51,6 +52,11 @@ export function ProfilePage() {
   return (
     <section className="page">
       <h2>Profile</h2>
+      {admin ? (
+        <Link className="ghost-btn" to="/admin" style={{ display: "inline-flex", marginTop: 8 }}>
+          Open Admin Panel
+        </Link>
+      ) : null}
       {error ? <p className="error-banner">{error}</p> : null}
       {message ? <p className="empty-note">{message}</p> : null}
       <article className="section-card glass" style={{ padding: 22, marginTop: 16 }}>

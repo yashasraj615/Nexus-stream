@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { artworkOverrideFile } from "./admin-store.ts";
+import { ffmpegPath } from "./bins.ts";
 import { THUMBS_DIR, VIDEO_EXT } from "./config.ts";
 import { getMedia } from "./db.ts";
 import { resolveMediaPath } from "./paths.ts";
@@ -58,7 +60,7 @@ function grabFrame(relativePath: string, seek: boolean) {
       "image2",
       "pipe:1",
     ];
-    const proc = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn(ffmpegPath(), args, { stdio: ["ignore", "pipe", "pipe"] });
     const chunks: Buffer[] = [];
     proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
     proc.stderr?.resume();
@@ -83,6 +85,16 @@ function grabFrame(relativePath: string, seek: boolean) {
 }
 
 export function extractArtwork(relativePath: string) {
+  const override = artworkOverrideFile(relativePath);
+  if (override) {
+    try {
+      const cached = readFileSync(override);
+      if (cached.length >= 32) return Promise.resolve(cached);
+    } catch {
+      /* fall through to generated art */
+    }
+  }
+
   const key = cacheKey(relativePath);
   const dest = path.join(THUMBS_DIR, `${key}.jpg`);
   if (existsSync(dest)) {

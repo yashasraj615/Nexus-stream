@@ -9,6 +9,11 @@ import { SeekBar } from "./SeekBar";
 
 type Neighbor = { name: string; path: string; playPath: string | null } | null;
 
+function blockNativeMenu(event: { preventDefault: () => void; stopPropagation: () => void }) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 const FIT_CYCLE: FitMode[] = ["contain", "cover", "fill"];
 const RATES = [0.25, 0.5, 1, 1.5, 2] as const;
 type Rate = (typeof RATES)[number];
@@ -94,6 +99,9 @@ export function VideoPlayer({
   const [rate, setRate] = useState<Rate>(loadRate);
   const [subtitle, setSubtitle] = useState<string>("off");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pipSupported, setPipSupported] = useState(false);
+  const [pipActive, setPipActive] = useState(false);
+  const [playerHint, setPlayerHint] = useState<string | null>(null);
   const rateRef = useRef(rate);
   const settingsOpenRef = useRef(settingsOpen);
   rateRef.current = rate;
@@ -311,6 +319,17 @@ export function VideoPlayer({
     else await root.requestFullscreen();
   }
 
+  async function togglePip() {
+    const el = videoRef.current;
+    if (!el || !document.pictureInPictureEnabled) return;
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+      else await el.requestPictureInPicture();
+    } catch {
+      setPlayerHint("Picture-in-Picture isn’t available right now.");
+    }
+  }
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const tag = (event.target as HTMLElement | null)?.tagName;
@@ -352,11 +371,34 @@ export function VideoPlayer({
     return () => document.removeEventListener("fullscreenchange", onFs);
   }, []);
 
+  useEffect(() => {
+    setPipSupported(Boolean(document.pictureInPictureEnabled));
+  }, []);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const onEnter = () => setPipActive(true);
+    const onLeave = () => setPipActive(false);
+    el.addEventListener("enterpictureinpicture", onEnter);
+    el.addEventListener("leavepictureinpicture", onLeave);
+    return () => {
+      el.removeEventListener("enterpictureinpicture", onEnter);
+      el.removeEventListener("leavepictureinpicture", onLeave);
+    };
+  }, [src]);
+
+  useEffect(() => {
+    if (!playerHint) return;
+    const handle = window.setTimeout(() => setPlayerHint(null), 2800);
+    return () => window.clearTimeout(handle);
+  }, [playerHint]);
+
   function onStagePointer(event: PointerEvent<HTMLDivElement>) {
     if (event.pointerType === "touch" || event.pointerType === "pen") lastTouchAt.current = Date.now();
     if (event.pointerType === "mouse" && Date.now() - lastTouchAt.current < 700) return;
     const target = event.target as HTMLElement;
-    if (target.closest(".player-plate") || target.closest(".player-title-chip") || target.closest(".player-settings")) {
+    if (target.closest(".player-plate") || target.closest(".player-topbar") || target.closest(".player-settings")) {
       return;
     }
     if (settingsOpen) {
@@ -391,12 +433,19 @@ export function VideoPlayer({
       className={`player-root${showControls || paused || settingsOpen ? " show-ui" : ""}${fullscreen ? " is-full" : ""}`}
       onPointerMove={reveal}
       onPointerDown={onStagePointer}
+      onContextMenu={blockNativeMenu}
     >
       <video
         ref={videoRef}
         className={`player-video fit-${fit}`}
         playsInline
         preload="auto"
+        controls={false}
+        controlsList="nodownload nofullscreen"
+        disablePictureInPicture={false}
+        draggable={false}
+        onContextMenu={blockNativeMenu}
+        onDragStart={blockNativeMenu}
         onPlay={(event) => {
           pauseAudio();
           setPaused(false);
@@ -478,6 +527,7 @@ export function VideoPlayer({
           />
         ))}
       </video>
+      <div className="player-shield" aria-hidden onContextMenu={blockNativeMenu} />
 
       {skipFlash ? (
         <div
@@ -514,11 +564,26 @@ export function VideoPlayer({
         </div>
       ) : null}
 
-      <div className="player-overlay">
-        <div className="player-title-chip glass">
-          <p>{title}</p>
-          {mode === "hls" ? <span className="player-chip">Remux</span> : null}
+      <div className="player-overlay" onContextMenu={blockNativeMenu}>
+        <div className="player-topbar">
+          <div className="player-title-chip glass">
+            <p>{title}</p>
+            {mode === "hls" ? <span className="player-chip">Remux</span> : null}
+          </div>
+          {pipSupported ? (
+            <div className="player-top-actions">
+              <button
+                type="button"
+                className={`player-chrome-btn glass${pipActive ? " on" : ""}`}
+                aria-label={pipActive ? "Exit Picture-in-Picture" : "Picture-in-Picture"}
+                onClick={() => void togglePip()}
+              >
+                <Glyph d={icons.pip} size={18} />
+              </button>
+            </div>
+          ) : null}
         </div>
+        {playerHint ? <p className="player-hint glass">{playerHint}</p> : null}
 
         {settingsOpen ? (
           <div

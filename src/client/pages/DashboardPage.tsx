@@ -64,6 +64,30 @@ export function DashboardPage() {
         .catch((err: Error) => {
           if (!cancelled) setError(err.message);
         });
+    } else {
+      void apiGet<HomePayload>("/api/home")
+        .then((data) => {
+          if (cancelled) return;
+          const next = {
+            ...data,
+            continueVideos: peekCache<HomePayload>("/api/home")?.continueVideos ?? data.continueVideos,
+            continueMusic: peekCache<HomePayload>("/api/home")?.continueMusic ?? data.continueMusic,
+          };
+          setCache("/api/home", { ...next, ...peekCache<HomePayload>("/api/home"), featured: data.featured, sections: data.sections, suggestedMovies: data.suggestedMovies, suggestedSeries: data.suggestedSeries, suggestedMusic: data.suggestedMusic, recentlyAdded: data.recentlyAdded });
+          setHome((prev) => {
+            if (!prev) return data;
+            return {
+              ...prev,
+              featured: data.featured,
+              sections: data.sections,
+              suggestedMovies: data.suggestedMovies,
+              suggestedSeries: data.suggestedSeries,
+              suggestedMusic: data.suggestedMusic,
+              recentlyAdded: data.recentlyAdded,
+            };
+          });
+        })
+        .catch(() => undefined);
     }
     void apiGet<ContinuePayload>("/api/home/continue")
       .then((data) => {
@@ -95,7 +119,8 @@ export function DashboardPage() {
   }, []);
 
   const featured = home?.featured ?? null;
-  const art = featured?.playPath && token ? artworkHref(featured.playPath, token) : "";
+  const artPath = featured?.artworkPath ?? featured?.playPath;
+  const art = artPath && token ? artworkHref(artPath, token, featured?.artworkVersion) : "";
 
   return (
     <section className="page">
@@ -154,26 +179,37 @@ export function DashboardPage() {
           ))}
         </MediaRail>
       ) : null}
-      <MediaRail title="Suggested Movies">
-        {(home?.suggestedMovies ?? []).map((entry) => (
-          <EntryCard key={entry.path} entry={entry} />
-        ))}
-      </MediaRail>
-      <MediaRail title="Suggested TV Series">
-        {(home?.suggestedSeries ?? []).map((entry) => (
-          <EntryCard key={entry.path} entry={entry} />
-        ))}
-      </MediaRail>
-      <MediaRail title="Suggested Music">
-        {(home?.suggestedMusic ?? []).map((entry) => (
-          <EntryCard key={entry.path} entry={entry} />
-        ))}
-      </MediaRail>
-      <MediaRail title="Recently Added">
-        {(home?.recentlyAdded ?? []).map((entry) => (
-          <EntryCard key={entry.path} entry={entry} />
-        ))}
-      </MediaRail>
+      {(home?.sections ?? []).map((section) => (
+        <MediaRail key={section.id} title={section.title}>
+          {section.items.map((entry) => (
+            <EntryCard key={entry.path} entry={entry} />
+          ))}
+        </MediaRail>
+      ))}
+      {(home?.sections?.length ?? 0) === 0 ? (
+        <>
+          <MediaRail title="Suggested Movies">
+            {(home?.suggestedMovies ?? []).map((entry) => (
+              <EntryCard key={entry.path} entry={entry} />
+            ))}
+          </MediaRail>
+          <MediaRail title="Suggested TV Series">
+            {(home?.suggestedSeries ?? []).map((entry) => (
+              <EntryCard key={entry.path} entry={entry} />
+            ))}
+          </MediaRail>
+          <MediaRail title="Suggested Music">
+            {(home?.suggestedMusic ?? []).map((entry) => (
+              <EntryCard key={entry.path} entry={entry} />
+            ))}
+          </MediaRail>
+          <MediaRail title="Recently Added">
+            {(home?.recentlyAdded ?? []).map((entry) => (
+              <EntryCard key={entry.path} entry={entry} />
+            ))}
+          </MediaRail>
+        </>
+      ) : null}
     </section>
   );
 }

@@ -5,7 +5,7 @@
   "identifier": "app.nexusstream.desktop",
   "build": {
     "frontendDist": "../public",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "node scripts/prepare-bundle.mjs"
   },
   "app": {
     "windows": [],
@@ -26,6 +26,12 @@
     "macOS": {
       "minimumSystemVersion": "13.0",
       "infoPlist": "Info.plist"
-    }
+    },
+    "resources": [
+      "runtime/server.mjs",
+      "runtime/app.env",
+      "runtime/bin/*",
+      "runtime/web/**/*"
+    ]
   }
 }

@@ -71,6 +71,7 @@ function ProfileChip() {
 
 export function GuestOnly({ children }: { children: ReactNode }) {
   const { ready, user } = useAuth();
+  const location = useLocation();
   if (!ready) {
     return (
       <div className="loading-screen">
@@ -78,6 +79,9 @@ export function GuestOnly({ children }: { children: ReactNode }) {
       </div>
     );
   }
-  if (user) return <Navigate to="/" replace />;
+  if (user) {
+    const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+    return <Navigate to={from && from.startsWith("/") && from !== "/login" ? from : "/"} replace />;
+  }
   return children;
 }

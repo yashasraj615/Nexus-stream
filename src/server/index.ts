@@ -1,18 +1,17 @@
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { getRequestListener } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import { createServer as createViteServer } from "vite";
 import { api } from "./app.ts";
-import { HOST, PORT } from "./config.ts";
+import { HOST, PORT, PROJECT_ROOT } from "./config.ts";
 import { cleanupHls } from "./hls.ts";
 import { keepHostAwake } from "./keepalive.ts";
 import { startScan } from "./scan.ts";
+
 const isProd = process.env.NODE_ENV === "production";
-const rootDir = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
+const resourceDir = process.env.NEXUS_RESOURCE_DIR ?? PROJECT_ROOT;
 
 async function start() {
   keepHostAwake();
@@ -20,8 +19,9 @@ async function start() {
 
   if (!isProd) {
     const httpServer = createServer();
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
-      root: rootDir,
+      root: PROJECT_ROOT,
       server: {
         middlewareMode: true,
         allowedHosts: true,
@@ -45,14 +45,17 @@ async function start() {
     return;
   }
 
-  const dist = path.join(rootDir, "dist");
-  if (!existsSync(dist)) {
-    throw new Error("Missing dist/. Run `npm run build` first.");
+  const dist = existsSync(path.join(resourceDir, "web", "index.html"))
+    ? path.join(resourceDir, "web")
+    : path.join(PROJECT_ROOT, "dist");
+  if (!existsSync(path.join(dist, "index.html"))) {
+    throw new Error("Missing web UI. Reinstall Nexus Stream from the DMG.");
   }
 
+  const staticRoot = path.relative(process.cwd(), dist) || dist || ".";
   const app = new Hono();
   app.route("/", api);
-  app.use("/*", serveStatic({ root: dist }));
+  app.use("/*", serveStatic({ root: staticRoot }));
   app.get("*", serveStatic({ path: path.join(dist, "index.html") }));
 
   const prodServer = createServer(getRequestListener(app.fetch));

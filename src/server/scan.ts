@@ -1,9 +1,10 @@
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
-import { IGNORED_EXT, MEDIA_ROOT } from "./config.ts";
+import { IGNORED_EXT } from "./config.ts";
 import { replaceLibrary, type MediaRow } from "./db.ts";
 import { fileKind } from "./media-types.ts";
 import { extensionOf, joinRelative } from "./paths.ts";
+import { listLibraries } from "./settings.ts";
 
 export type ScanState = {
   status: "idle" | "scanning" | "ready" | "error";
@@ -46,7 +47,27 @@ async function runScan() {
 
   try {
     const rows: Array<Omit<MediaRow, "scanned_at">> = [];
-    await walk(MEDIA_ROOT, "", rows);
+    const libraries = listLibraries();
+    for (const library of libraries.filter((row) => row.primary)) {
+      await walk(library.path, "", rows);
+    }
+    const used = new Set(rows.filter((row) => !row.parent_path).map((row) => row.name.toLowerCase()));
+    for (const library of libraries.filter((row) => !row.primary)) {
+      let name = library.name;
+      if (used.has(name.toLowerCase())) continue;
+      used.add(name.toLowerCase());
+      rows.push({
+        relative_path: name,
+        parent_path: "",
+        name,
+        is_directory: 1,
+        size_bytes: 0,
+        mtime_ms: 0,
+        ext: "",
+        kind: "directory",
+      });
+      await walk(library.path, name, rows);
+    }
     replaceLibrary(rows, Date.now());
     state = {
       ...state,

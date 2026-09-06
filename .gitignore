@@ -6,5 +6,9 @@ data
 .env.local
 *.tsbuildinfo
 .vite
+*.dmg
+SKILL.md
+frosted-glass-ui-SKILL.md
 src-tauri/target
 src-tauri/gen
+src-tauri/runtime

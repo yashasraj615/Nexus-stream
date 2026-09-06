@@ -1,6 +1,7 @@
 import { getMedia, listByPrefix, listChildren, listNewest, searchMedia, type MediaRow } from "./db.ts";
 import { probeMedia, type MediaProbe } from "./ffmpeg.ts";
 import { inMovies, inMusic, inSeriesTree, parentOf, resolveMediaPath } from "./paths.ts";
+import { getFeaturedPath, getOverride, isHiddenFromRecs, isHiddenPath, listSections } from "./admin-store.ts";
 
 export type DirectoryEntry = {
   name: string;
@@ -19,18 +20,37 @@ export type DirectoryEntry = {
   subtitlePaths: string[];
   childLabel: string | null;
   artworkPath: string | null;
+  artworkVersion?: number;
 };
 
-function withArt(entry: Omit<DirectoryEntry, "artworkPath">): DirectoryEntry {
+function withArt(entry: Omit<DirectoryEntry, "artworkPath" | "artworkVersion">): DirectoryEntry {
+  let presented: DirectoryEntry;
   if (entry.kind === "track" || entry.kind === "library") {
-    return { ...entry, artworkPath: null };
-  }
-  if (entry.playPath) return { ...entry, artworkPath: entry.playPath };
-  if (entry.isDirectory) {
+    presented = { ...entry, artworkPath: null };
+  } else if (entry.playPath) {
+    presented = { ...entry, artworkPath: entry.playPath };
+  } else if (entry.isDirectory) {
     const video = firstVideo(entry.path);
-    return { ...entry, artworkPath: video?.relative_path ?? null };
+    presented = { ...entry, artworkPath: video?.relative_path ?? null };
+  } else {
+    presented = { ...entry, artworkPath: null };
   }
-  return { ...entry, artworkPath: null };
+  return applyOverride(presented);
+}
+
+function applyOverride(entry: DirectoryEntry): DirectoryEntry {
+  const ov = getOverride(entry.path) ?? (entry.playPath ? getOverride(entry.playPath) : null);
+  if (!ov) return entry;
+  return {
+    ...entry,
+    name: ov.displayTitle || entry.name,
+    artworkPath: ov.artworkFile ? entry.path : entry.artworkPath,
+    artworkVersion: ov.artworkFile ? ov.updatedAt : undefined,
+  };
+}
+
+export function isAudienceHidden(relativePath: string) {
+  return isHiddenPath(relativePath);
 }
 
 function videosUnder(folderPath: string) {
@@ -309,12 +329,14 @@ export function getContainer(relativePath: string): ContainerPayload | null {
   };
 }
 
-export function listDirectory(parentPath: string): DirectoryEntry[] {
+export function listDirectory(parentPath: string, opts?: { includeHidden?: boolean; originalNames?: boolean }): DirectoryEntry[] {
   const rows = listChildren(parentPath);
   const out: DirectoryEntry[] = [];
   for (const row of rows) {
     const presented = row.is_directory ? presentFolder(row) : presentFile(row);
-    if (presented) out.push(presented);
+    if (!presented) continue;
+    if (!opts?.includeHidden && isHiddenPath(presented.path)) continue;
+    out.push(opts?.originalNames ? { ...presented, name: row.name } : presented);
   }
   return out;
 }
@@ -458,39 +480,42 @@ export function resolvePlayable(relativePath: string) {
   return null;
 }
 
-export function presentAny(relativePath: string): DirectoryEntry | null {
+export function presentAny(relativePath: string, opts?: { includeHidden?: boolean }): DirectoryEntry | null {
   const row = getMedia(relativePath);
   if (!row) return null;
+  if (!opts?.includeHidden && isHiddenPath(relativePath)) return null;
   return row.is_directory ? presentFolder(row) : presentFile(row);
 }
 
-export function listSeriesCards(): DirectoryEntry[] {
-  const cartoon = listDirectory("yashas cartoon").filter((entry) => entry.kind === "series");
+export function listSeriesCards(opts?: { includeHidden?: boolean }): DirectoryEntry[] {
+  const cartoon = listDirectory("yashas cartoon", opts).filter((entry) => entry.kind === "series");
   const sarabhi = getMedia("Sarabhi");
   const cards = [...cartoon];
   if (sarabhi) {
-    const presented = presentFolder(sarabhi);
+    const presented = presentAny("Sarabhi", opts);
     if (presented) cards.unshift(presented);
   }
   return cards;
 }
 
-export function listMovieCards(): DirectoryEntry[] {
-  const langs = listDirectory("movies").filter((entry) => entry.isDirectory);
+export function listMovieCards(opts?: { includeHidden?: boolean }): DirectoryEntry[] {
+  const langs = listDirectory("movies", opts).filter((entry) => entry.isDirectory);
   const out: DirectoryEntry[] = [];
   for (const lang of langs) {
-    for (const entry of listDirectory(lang.path)) {
+    for (const entry of listDirectory(lang.path, opts)) {
       if (entry.kind === "movie" || entry.kind === "collection") out.push(entry);
     }
   }
   return out.sort((a, b) => naturalCompare(a.name, b.name));
 }
 
-export function listTrackCards(limit = 24): DirectoryEntry[] {
+export function listTrackCards(limit = 24, opts?: { includeHidden?: boolean }): DirectoryEntry[] {
   const out: DirectoryEntry[] = [];
-  for (const row of listNewest("audio", limit)) {
-    const presented = presentFile(row);
+  for (const row of listNewest("audio", limit * 2)) {
+    if (!opts?.includeHidden && isHiddenFromRecs(row.relative_path)) continue;
+    const presented = presentAny(row.relative_path, opts);
     if (presented) out.push(presented);
+    if (out.length >= limit) break;
   }
   return out;
 }
@@ -499,6 +524,7 @@ export function listRecentlyAdded(limit = 18): DirectoryEntry[] {
   const out: DirectoryEntry[] = [];
   const seen = new Set<string>();
   for (const row of listNewest(null, 120)) {
+    if (isHiddenFromRecs(row.relative_path)) continue;
     if (inSeriesTree(row.relative_path)) {
       const root = seriesRootOf(row.relative_path);
       if (!root || seen.has(root)) continue;
@@ -605,6 +631,7 @@ export function searchLibrary(query: string): SearchResults {
 
   const consider = (entry: DirectoryEntry | null, sourceName: string) => {
     if (!entry || entry.kind === "library") return;
+    if (isHiddenPath(entry.path)) return;
     const score = Math.max(matchScore(entry.name, needle), matchScore(sourceName, needle));
     if (score <= 0) return;
     const key = entry.path;
@@ -664,18 +691,34 @@ function shuffleDaily<T>(items: T[], salt = 0) {
 }
 
 export function getHomeRows() {
-  const movies = listMovieCards();
+  const movies = listMovieCards().filter((entry) => !isHiddenFromRecs(entry.path));
   const playable = movies.filter((entry) => entry.kind === "movie" && entry.playPath);
-  const featured = pickDaily(playable, 0);
+  const featuredOverride = getFeaturedPath();
+  const featured =
+    (featuredOverride ? presentAny(featuredOverride) : null) ?? pickDaily(playable, 0);
   const suggestedMovies = shuffleDaily(
     movies.filter((entry) => entry.path !== featured?.path),
     1,
   ).slice(0, 24);
+  const sections = listSections(false)
+    .filter((section) => section.enabled)
+    .map((section) => ({
+      id: section.id,
+      title: section.title,
+      items: section.items
+        .map((mediaPath) => presentAny(mediaPath))
+        .filter((entry): entry is DirectoryEntry => Boolean(entry)),
+    }))
+    .filter((section) => section.items.length > 0);
   return {
     featured,
+    sections,
     suggestedMovies,
-    suggestedSeries: shuffleDaily(listSeriesCards(), 2),
+    suggestedSeries: shuffleDaily(
+      listSeriesCards().filter((entry) => !isHiddenFromRecs(entry.path)),
+      2,
+    ),
     suggestedMusic: shuffleDaily(listTrackCards(48), 3).slice(0, 36),
-    recentlyAdded: listRecentlyAdded(18),
+    recentlyAdded: listRecentlyAdded(18).filter((entry) => !isHiddenFromRecs(entry.path)),
   };
 }
